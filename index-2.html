@@ -25,6 +25,11 @@ input[type=file]{display:none}
 .brands{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line)}
 .chip{flex:0 0 auto;padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
 .chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;border:1px solid rgba(128,128,128,.4);vertical-align:middle}
+.item .c .swatch{margin-right:5px}
+.searchRow{padding:6px 16px 0}
+.searchRow input{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px}
+select.brandSelect{width:100%;margin:2px 0;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--accent);color:#fff;font-size:14px;font-weight:600}
 main{padding:12px 16px 40px;max-width:760px;margin:0 auto}
 .cat{margin:16px 0 6px;font-size:13px;color:var(--sub);font-weight:600}
 .item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px}
@@ -46,13 +51,17 @@ main{padding:12px 16px 40px;max-width:760px;margin:0 auto}
   </div>
 </header>
 <div class="status" id="status">ข้อมูลถูกเก็บไว้ในเบราว์เซอร์นี้เท่านั้น (ไม่แชร์ข้ามเครื่อง/อุปกรณ์)</div>
-<div class="brands" id="brands"></div>
+<div class="searchRow"><input type="text" id="searchInput" placeholder="ค้นหาชื่อรุ่น..."></div>
+<div class="brands"><select id="brandSelect" class="brandSelect"></select></div>
+<div class="brands" id="colorsRow"></div>
 <main id="main"><div class="empty">กำลังโหลดข้อมูล…</div></main>
 
 <script>
 const STORAGE_KEY = 'phoneStockData';
 let currentData = { items: [], updatedAt: null, fileName: null };
 let activeBrand = 'ทั้งหมด';
+let activeColor = 'ทั้งหมด';
+let searchTerm = '';
 
 const aliases = [
   [/^IPH/i,'Apple'], [/^IPAD/i,'Apple'], [/^SS$/i,'Samsung'], [/^GALAXY/i,'Samsung'],
@@ -69,6 +78,26 @@ function detectBrand(desc, category){
   return tok.charAt(0).toUpperCase()+tok.slice(1).toLowerCase();
 }
 
+const colors = [
+  [/BLACK|^BK$/i,'ดำ','#1c1c1e'], [/WHITE|^WH$/i,'ขาว','#f2f2f2'],
+  [/SILVER|^SL$/i,'เงิน','#c0c0c0'], [/GOLD|^GD$/i,'ทอง','#d4af37'],
+  [/GRAY|GREY|^GY$/i,'เทา','#8e8e93'], [/BLUE|^BL$/i,'น้ำเงิน','#3a6fd6'],
+  [/GREEN|^GN$/i,'เขียว','#2e8b57'], [/PINK|^PK$/i,'ชมพู','#ff8fb3'],
+  [/PURPLE|VIOLET|^PP$/i,'ม่วง','#8e5bb5'], [/RED|^RD$/i,'แดง','#e0453c'],
+  [/ORANGE|^OR$/i,'ส้ม','#e67e22'], [/NAVY|^NV$/i,'กรมท่า','#1b2a4a'],
+  [/BEIGE/i,'เบจ','#d8c3a5'], [/BRONZE/i,'บรอนซ์','#8c6239'],
+  [/TITANIUM/i,'ไทเทเนียม','#7c7c7c'], [/GRAPHITE/i,'กราไฟต์','#3b3b3b'],
+  [/CREAM/i,'ครีม','#f5e6ca'], [/LAVENDER/i,'ลาเวนเดอร์','#c8a2c8'],
+  [/MINT/i,'มินต์','#a8e6cf'], [/TEAL/i,'ทีล','#008080']
+];
+function detectColor(desc){
+  const parts = String(desc||'').split(',').map(s=>s.trim()).filter(Boolean);
+  for(let i=parts.length-1;i>=0;i--){
+    for(const [re,name,hex] of colors) if(re.test(parts[i])) return {name,hex};
+  }
+  return null;
+}
+
 function parseWorkbook(wb){
   const items = [];
   let category = '';
@@ -78,7 +107,7 @@ function parseWorkbook(wb){
       const [a,b,c,d,e] = row;
       if(a!=null && typeof a === 'number' && c!=null && e==null){ category = String(c).trim(); continue; }
       if(a!=null && typeof a === 'string' && c!=null && e!=null){
-        items.push({ code:a, branch:b, desc:String(c).trim(), qty:Number(e)||0, category, brand: detectBrand(c, category) });
+        items.push({ code:a, branch:b, desc:String(c).trim(), qty:Number(e)||0, category, brand: detectBrand(c, category), color: detectColor(c) });
       }
     }
   }
@@ -116,15 +145,34 @@ function render(){
   items.forEach(it=>{ brandCounts[it.brand] = (brandCounts[it.brand]||0) + it.qty; });
   const brands = Object.keys(brandCounts).sort((a,b)=>brandCounts[b]-brandCounts[a]);
 
-  const brandsEl = document.getElementById('brands');
-  brandsEl.innerHTML = '';
-  brandsEl.appendChild(mkChip('ทั้งหมด', items.reduce((s,i)=>s+i.qty,0)));
-  brands.forEach(b=> brandsEl.appendChild(mkChip(b, brandCounts[b])));
+  const brandSelect = document.getElementById('brandSelect');
+  const brandOpts = [['ทั้งหมด', items.reduce((s,i)=>s+i.qty,0)], ...brands.map(b=>[b, brandCounts[b]])];
+  brandSelect.innerHTML = brandOpts.map(([name,count])=> `<option value="${name}" ${name===activeBrand?'selected':''}>${name} (${count})</option>`).join('');
+  brandSelect.onchange = ()=>{ activeBrand = brandSelect.value; activeColor = 'ทั้งหมด'; render(); };
 
   const main = document.getElementById('main');
-  if(!items.length){ main.innerHTML = '<div class="empty">ยังไม่มีข้อมูลสต็อก — อัปโหลดไฟล์เพื่อเริ่มต้น</div>'; return; }
+  if(!items.length){ main.innerHTML = '<div class="empty">ยังไม่มีข้อมูลสต็อก — อัปโหลดไฟล์เพื่อเริ่มต้น</div>'; document.getElementById('colorsRow').innerHTML=''; return; }
 
-  const shown = activeBrand==='ทั้งหมด' ? items : items.filter(i=>i.brand===activeBrand);
+  const byBrand = activeBrand==='ทั้งหมด' ? items : items.filter(i=>i.brand===activeBrand);
+
+  const colorCounts = {};
+  byBrand.forEach(it=>{ const cn = it.color ? it.color.name : 'ไม่ระบุ'; colorCounts[cn] = (colorCounts[cn]||0) + it.qty; });
+  const colorNames = Object.keys(colorCounts).sort((a,b)=>colorCounts[b]-colorCounts[a]);
+  const colorsRow = document.getElementById('colorsRow');
+  colorsRow.innerHTML = '';
+  if(colorNames.length > 1){
+    colorsRow.appendChild(mkChip('ทั้งหมด', byBrand.reduce((s,i)=>s+i.qty,0), activeColor==='ทั้งหมด', ()=>{ activeColor='ทั้งหมด'; render(); }, null));
+    colorNames.forEach(cn=>{
+      const hex = (byBrand.find(i=> (i.color? i.color.name : 'ไม่ระบุ')===cn) || {}).color;
+      colorsRow.appendChild(mkChip(cn, colorCounts[cn], cn===activeColor, ()=>{ activeColor=cn; render(); }, hex ? hex.hex : null));
+    });
+  }
+
+  let shown = activeColor==='ทั้งหมด' ? byBrand : byBrand.filter(i=> (i.color? i.color.name:'ไม่ระบุ')===activeColor);
+  if(searchTerm.trim()){
+    const q = searchTerm.trim().toLowerCase();
+    shown = shown.filter(i=> i.desc.toLowerCase().includes(q));
+  }
   const byCat = {};
   shown.forEach(it=>{ (byCat[it.category]=byCat[it.category]||[]).push(it); });
 
@@ -132,17 +180,17 @@ function render(){
     <div class="cat">${cat} (${byCat[cat].reduce((s,i)=>s+i.qty,0)})</div>
     ${byCat[cat].map(it=>`
       <div class="item">
-        <div><div class="d">${it.desc}</div><div class="c">${it.code} • สาขา ${it.branch ?? '-'}</div></div>
+        <div><div class="d">${it.color?`<span class="swatch" style="background:${it.color.hex}"></span>`:''}${it.desc}</div><div class="c">${it.code} • สาขา ${it.branch ?? '-'}</div></div>
         <div class="q">${it.qty}</div>
       </div>`).join('')}
-  `).join('') || '<div class="empty">ไม่พบสินค้าในแบรนด์นี้</div>';
+  `).join('') || '<div class="empty">ไม่พบสินค้าในหมวดนี้</div>';
 }
 
-function mkChip(name, count){
+function mkChip(name, count, isActive, onClick, hex){
   const el = document.createElement('div');
-  el.className = 'chip' + (name===activeBrand ? ' active':'');
-  el.textContent = name + ' (' + count + ')';
-  el.onclick = ()=>{ activeBrand = name; render(); };
+  el.className = 'chip' + (isActive ? ' active':'');
+  el.innerHTML = (hex ? `<span class="swatch" style="background:${hex}"></span>`:'') + name + ' (' + count + ')';
+  el.onclick = onClick;
   return el;
 }
 
@@ -168,6 +216,8 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
     render();
   }
 });
+
+document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
 
 loadFromStorage();
 </script>
