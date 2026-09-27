@@ -120,6 +120,7 @@ function loadFromStorage(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw) currentData = JSON.parse(raw);
+    if(currentData.items) currentData.items.forEach(it=>{ if(!it.color) it.color = detectColor(it.desc); });
   }catch(e){ /* ignore corrupt data */ }
   render();
 }
