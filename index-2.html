@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>สต็อกสินค้ามือถือ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0f1115; --card:#1a1d24; --line:#2a2e37; --text:#e8eaed; --sub:#9aa2ad;
+  --accent:#4f8cff; --accent2:#3a6fd6;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f5f6f8; --card:#ffffff; --line:#e2e4e8; --text:#1c1f24; --sub:#5b626d; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+header{position:sticky;top:0;background:var(--bg);padding:14px 16px 8px;border-bottom:1px solid var(--line);z-index:5}
+h1{font-size:18px;margin:0 0 10px}
+.meta{font-size:12px;color:var(--sub)}
+.uploadRow{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap}
+button,.filebtn{background:var(--accent);color:#fff;border:none;padding:9px 14px;border-radius:8px;font-size:14px;cursor:pointer}
+button:active,.filebtn:active{background:var(--accent2)}
+input[type=file]{display:none}
+.brands{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line)}
+.chip{flex:0 0 auto;padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
+.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+main{padding:12px 16px 40px;max-width:760px;margin:0 auto}
+.cat{margin:16px 0 6px;font-size:13px;color:var(--sub);font-weight:600}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px}
+.item .d{font-size:14px}
+.item .c{font-size:11px;color:var(--sub);margin-top:2px}
+.item .q{font-size:15px;font-weight:700;min-width:34px;text-align:right}
+.empty{color:var(--sub);text-align:center;padding:40px 10px;font-size:14px}
+.status{font-size:12px;color:var(--sub);padding:0 16px 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>สต็อกสินค้ามือถือ</h1>
+  <div class="uploadRow">
+    <label class="filebtn" for="file">อัปโหลดไฟล์ใหม่</label>
+    <input type="file" id="file" accept=".xlsx,.xls">
+    <button id="clearBtn" style="background:#555">ล้างข้อมูล</button>
+    <span class="meta" id="updatedMeta">ยังไม่มีข้อมูล</span>
+  </div>
+</header>
+<div class="status" id="status">ข้อมูลถูกเก็บไว้ในเบราว์เซอร์นี้เท่านั้น (ไม่แชร์ข้ามเครื่อง/อุปกรณ์)</div>
+<div class="brands" id="brands"></div>
+<main id="main"><div class="empty">กำลังโหลดข้อมูล…</div></main>
+
+<script>
+const STORAGE_KEY = 'phoneStockData';
+let currentData = { items: [], updatedAt: null, fileName: null };
+let activeBrand = 'ทั้งหมด';
+
+const aliases = [
+  [/^IPH/i,'Apple'], [/^IPAD/i,'Apple'], [/^SS$/i,'Samsung'], [/^GALAXY/i,'Samsung'],
+  [/^OPPO/i,'Oppo'], [/^VIVO/i,'Vivo'], [/^XIAOMI/i,'Xiaomi'], [/^REALME/i,'Realme'],
+  [/^INFINIX/i,'Infinix'], [/^ALLDOCUBE/i,'Alldocube'], [/^HUAWEI/i,'Huawei'],
+  [/^NOKIA/i,'Nokia'], [/^ITEL/i,'Itel'], [/^TECNO/i,'Tecno'], [/^ONEPLUS/i,'OnePlus']
+];
+function detectBrand(desc, category){
+  const parts = String(desc||'').split(',').map(s=>s.trim()).filter(Boolean);
+  let i=0;
+  while(i<parts.length && ['H/S','ACC'].includes(parts[i].toUpperCase())) i++;
+  const tok = parts[i] || category || 'อื่นๆ';
+  for(const [re,name] of aliases) if(re.test(tok)) return name;
+  return tok.charAt(0).toUpperCase()+tok.slice(1).toLowerCase();
+}
+
+function parseWorkbook(wb){
+  const items = [];
+  let category = '';
+  for(const sheetName of wb.SheetNames){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:null});
+    for(const row of rows){
+      const [a,b,c,d,e] = row;
+      if(a!=null && typeof a === 'number' && c!=null && e==null){ category = String(c).trim(); continue; }
+      if(a!=null && typeof a === 'string' && c!=null && e!=null){
+        items.push({ code:a, branch:b, desc:String(c).trim(), qty:Number(e)||0, category, brand: detectBrand(c, category) });
+      }
+    }
+  }
+  return items;
+}
+
+function setStatus(msg){ document.getElementById('status').textContent = msg; }
+
+function loadFromStorage(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) currentData = JSON.parse(raw);
+  }catch(e){ /* ignore corrupt data */ }
+  render();
+}
+
+function saveToStorage(data){
+  currentData = data;
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    setStatus('อัปเดตข้อมูลสำเร็จ (เก็บในเบราว์เซอร์นี้)');
+  }catch(e){
+    setStatus('บันทึกไม่สำเร็จ: '+e.message);
+  }
+  render();
+}
+
+function render(){
+  const items = currentData.items || [];
+  document.getElementById('updatedMeta').textContent = currentData.updatedAt
+    ? 'อัปเดตล่าสุด: ' + new Date(currentData.updatedAt).toLocaleString('th-TH') + (currentData.fileName? ' ('+currentData.fileName+')':'')
+    : 'ยังไม่มีข้อมูล';
+
+  const brandCounts = {};
+  items.forEach(it=>{ brandCounts[it.brand] = (brandCounts[it.brand]||0) + it.qty; });
+  const brands = Object.keys(brandCounts).sort((a,b)=>brandCounts[b]-brandCounts[a]);
+
+  const brandsEl = document.getElementById('brands');
+  brandsEl.innerHTML = '';
+  brandsEl.appendChild(mkChip('ทั้งหมด', items.reduce((s,i)=>s+i.qty,0)));
+  brands.forEach(b=> brandsEl.appendChild(mkChip(b, brandCounts[b])));
+
+  const main = document.getElementById('main');
+  if(!items.length){ main.innerHTML = '<div class="empty">ยังไม่มีข้อมูลสต็อก — อัปโหลดไฟล์เพื่อเริ่มต้น</div>'; return; }
+
+  const shown = activeBrand==='ทั้งหมด' ? items : items.filter(i=>i.brand===activeBrand);
+  const byCat = {};
+  shown.forEach(it=>{ (byCat[it.category]=byCat[it.category]||[]).push(it); });
+
+  main.innerHTML = Object.keys(byCat).map(cat => `
+    <div class="cat">${cat} (${byCat[cat].reduce((s,i)=>s+i.qty,0)})</div>
+    ${byCat[cat].map(it=>`
+      <div class="item">
+        <div><div class="d">${it.desc}</div><div class="c">${it.code} • สาขา ${it.branch ?? '-'}</div></div>
+        <div class="q">${it.qty}</div>
+      </div>`).join('')}
+  `).join('') || '<div class="empty">ไม่พบสินค้าในแบรนด์นี้</div>';
+}
+
+function mkChip(name, count){
+  const el = document.createElement('div');
+  el.className = 'chip' + (name===activeBrand ? ' active':'');
+  el.textContent = name + ' (' + count + ')';
+  el.onclick = ()=>{ activeBrand = name; render(); };
+  return el;
+}
+
+document.getElementById('file').addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  setStatus('กำลังอ่านไฟล์…');
+  try{
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const items = parseWorkbook(wb);
+    if(!items.length){ setStatus('อ่านไฟล์ไม่พบข้อมูลสินค้า ตรวจรูปแบบไฟล์อีกครั้ง'); return; }
+    saveToStorage({ items, updatedAt: new Date().toISOString(), fileName: f.name });
+  }catch(err){ setStatus('อ่านไฟล์ผิดพลาด: '+err.message); }
+});
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(confirm('ล้างข้อมูลสต็อกทั้งหมดในเบราว์เซอร์นี้?')){
+    localStorage.removeItem(STORAGE_KEY);
+    currentData = { items: [], updatedAt: null, fileName: null };
+    activeBrand = 'ทั้งหมด';
+    setStatus('ล้างข้อมูลแล้ว');
+    render();
+  }
+});
+
+loadFromStorage();
+</script>
+</body>
+</html>
